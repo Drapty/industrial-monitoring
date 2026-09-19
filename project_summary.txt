@@ -1,0 +1,67 @@
+README.md - Purpose: Project overview and run/setup instructions.
+- Contents: Quick setup steps (create venv, activate, pip install, run `run_all.py`), description of components (simulator, backend, static dashboard).
+
+requirements.txt - Purpose: Pin Python dependencies for the app and tests.
+- Key entries: fastapi, uvicorn[standard], paho-mqtt, requests, pytest.
+
+run_all.py - Purpose: Single-file runner to prepare environment and start the backend.
+- get_venv_python(): Returns path to .venv\Scripts\python.exe if present.
+- choose_python(): Picks venv Python when available, else falls back to sys.executable.a
+- ensure_venv(): Attempts to create a stdlib venv; on failure tries installing/using virtualenv; updates global Python choice.
+- install_requirements(): Runs pip upgrade and installs requirements.txt using chosen interpreter.
+- start_backend(): Launches the backend via python -m uvicorn backend.main:app (spawns subprocess; sets PYTHONPATH/env).
+- main(): Orchestrates venv creation, dependency install, and backend start; keeps process running.
+
+backend/__init__.py - Purpose: Package marker (likely empty).
+- No functions to document (serves to make backend a package).
+
+backend/main.py - Purpose: FastAPI application that ingests MQTT sensor telemetry, maintains in-memory state, provides HTTP APIs and WebSocket updates, and can generate demo data if MQTT unavailable.
+- ConnectionManager (class)
+  - connect(websocket): register a new WebSocket client.
+  - disconnect(websocket): remove client.
+  - broadcast(message): send a message to all connected clients.
+- determine_status(sensor): Evaluate numeric thresholds on sensor fields to return 'normal' | 'warning' | 'critical'.
+- normalize_sensor(name, payload): Canonicalize incoming payload (ensure fields exist, types cast), attach name and status.
+- evaluate_alert(sensor): Create an alert dict when a sensor is not 'normal'.
+- persist_reading(sensor): Thread-safe mutation of in-memory stores: sensors, alerts, history.
+- snapshot_state(): Build snapshot JSON including sensors, alerts, history, and mqtt_connected.
+- push_update(): Async helper to broadcast the snapshot to WebSocket clients.
+- handle_sensor_message(topic, payload): Async handler called when a new sensor reading arrives; normalizes, persists, and pushes updates.
+- on_mqtt_message(client, userdata, msg): paho-mqtt callback invoked on MQTT message; decodes JSON and schedules handle_sensor_message on the asyncio loop (handles missing loop edge cases).
+- connect_mqtt() / on_mqtt_connect(): Setup and connect MQTT client, subscribe to industrial/sensors/#, and update mqtt_connected state.
+- generate_demo_data(): Background coroutine that periodically synthesizes sensor readings when MQTT isn't available (keeps UI populated).
+- FastAPI endpoints:
+  - GET /api/health: returns basic health JSON.
+  - POST /api/sensor: accepts a JSON payload with topic + payload for manual ingestion (used by tests or external POSTs).
+  - GET /api/snapshot: returns current snapshot (sensors/alerts/history).
+  - GET /: serves index.html (static mount).
+  - WebSocket /ws: upgrades clients and sends live update messages via ConnectionManager.
+
+simulator/mqtt_simulator.py - Purpose: Standalone simulator that publishes synthetic sensor telemetry to a local MQTT broker.
+- SENSOR_DEFS: Base nominal values per sensor.
+- build_payload(sensor_name, values): Mutates/adjusts values slightly with randomness and returns a JSON-serializable dict including timestamp and bounded metrics.
+- Main loop: connects to localhost:1883, starts loop, and every ~2s publishes each sensor to topic industrial/sensors/<name> with qos=1. Handles KeyboardInterrupt to stop cleanly.
+
+static/index.html - Purpose: Frontend single-page dashboard.
+- Loads styles.css and app.js.
+- Contains DOM nodes for system status, sensor cards, alerts, telemetry canvas, and recent readings table.
+
+static/app.js - Purpose: Client-side UI logic for rendering state and receiving live updates.
+- State object: sensors, alerts, history, mqttConnected.
+- utcLabel(isoString): Format timestamp to local time string.
+- renderCards(), renderAlerts(), renderTable(), renderChart(): DOM renderers for different UI regions.
+- render(): Orchestrates all renderers and updates system status badge.
+- applySnapshot(data): Replace local state with server snapshot and call render().
+- fetchSnapshot(): HTTP GET /api/snapshot to bootstrap state.
+- connectWebSocket(): Opens ws://<host>/ws, handles onmessage to call applySnapshot, reconnect logic on close.
+- On load: calls fetchSnapshot(), connectWebSocket(), and polls snapshot every 5s.
+
+static/styles.css - Purpose: Visual styling for the dashboard (layout, color tokens, badges for status).
+- CSS variables for theme and status colors; responsive layout rules and components styles.
+
+tests/test_backend.py - Purpose: Unit tests using FastAPI TestClient to exercise API surface.
+- test_health_endpoint(): Asserts /api/health returns 200 and {"status": "ok"}.
+- test_sensor_ingestion(): POST to /api/sensor with a sample payload and assert accepted response.
+- test_snapshot_returns_data(): GET /api/snapshot and assert sensors, alerts, and history keys exist.
+
+Notes: state is in-memory (no persistence). MQTT runs in separate thread via paho; interop with asyncio is handled by scheduling onto the event loop.

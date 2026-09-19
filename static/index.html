@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Industrial Sensor Monitor</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Factory Operations</p>
+          <h1>Industrial Sensor Monitor</h1>
+        </div>
+        <div class="status-pill" id="systemStatus">Connecting...</div>
+      </header>
+
+      <section class="cards" id="sensorCards"></section>
+
+      <section class="content-grid">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Live telemetry</h2>
+          </div>
+          <canvas id="telemetryChart" width="680" height="260"></canvas>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Active alerts</h2>
+          </div>
+          <ul id="alertList" class="alert-list"></ul>
+        </div>
+      </section>
+
+      <section class="panel table-panel">
+        <div class="panel-header">
+          <h2>Recent readings</h2>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Sensor</th>
+              <th>Temperature</th>
+              <th>Pressure</th>
+              <th>Vibration</th>
+              <th>Humidity</th>
+              <th>Status</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody id="sensorTableBody"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
