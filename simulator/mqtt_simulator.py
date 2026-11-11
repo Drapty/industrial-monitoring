@@ -5,9 +5,10 @@ from datetime import datetime
 
 import paho.mqtt.client as mqtt
 
+### not running , prototype
 BROKER_HOST = "localhost"
 BROKER_PORT = 1883
-SENSOR_DEFS = {
+SENSOR_DEFS = {  #### str, dict str[float]
     "line-1/motor-a": {"temperature": 72, "pressure": 88, "vibration": 3.4, "humidity": 46},
     "line-1/motor-b": {"temperature": 79, "pressure": 95, "vibration": 4.2, "humidity": 52},
     "line-2/pump-1": {"temperature": 68, "pressure": 112, "vibration": 6.8, "humidity": 57},
@@ -28,7 +29,6 @@ def build_payload(sensor_name: str, values: dict) -> dict:
         "humidity": round(values["humidity"], 2),
         "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
     }
-
 
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 client.connect(BROKER_HOST, BROKER_PORT, 60)

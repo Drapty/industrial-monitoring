@@ -108,7 +108,7 @@ function render() {
   renderTable();
   renderChart();
 
-  const badge = state.mqttConnected ? 'MQTT connected' : 'Demo mode';
+  const badge = state.mqttConnected ? 'MQTT connected' : 'MQTT offline';
   systemStatus.textContent = badge;
   systemStatus.style.background = state.mqttConnected ? 'rgba(34, 197, 94, 0.15)' : 'rgba(96, 165, 250, 0.15)';
   systemStatus.style.borderColor = state.mqttConnected ? 'rgba(34, 197, 94, 0.4)' : 'rgba(96, 165, 250, 0.4)';
@@ -141,16 +141,62 @@ function connectWebSocket() {
 
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
+
     if (message.type === 'update') {
       applySnapshot(message.data);
     }
+
+    if (message.type === 'mqtt_status') {
+      if (message.status === 'online') {
+        state.mqttConnected = true;
+        hideMqttPopup();
+      }
+    
+
+      if (message.status === 'offline') {
+        state.mqttConnected = false;
+        showMqttPopup();
+      }
+    }
+
   };
+  
+
+  
 
   socket.onclose = () => {
     setTimeout(connectWebSocket, 2500);
   };
+
+
+}
+
+function hideMqttPopup() {
+  const popup = document.getElementById('mqttPopup');
+
+  if (popup) {
+    popup.remove();
+  }
+}
+
+
+function showMqttPopup() {
+  let popup = document.getElementById('mqttPopup');
+
+  if (!popup) {
+    popup = document.createElement('div');
+    popup.id = 'mqttPopup';
+    popup.textContent = '⚠ MQTT is offline';
+    document.body.appendChild(popup);
+  }
+  else
+  {
+    popup.textContent = 'MQTT is not connected';
+  }
+
 }
 
 fetchSnapshot();
 connectWebSocket();
 setInterval(fetchSnapshot, 5000);
+c

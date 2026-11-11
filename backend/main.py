@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from contextlib import asynccontextmanager
+
 APP_ROOT = os.path.dirname(os.path.dirname(__file__))
 STATIC_DIR = os.path.join(APP_ROOT, "static")
 
@@ -23,6 +25,12 @@ app.add_middleware(
 )
 
 # In-memory state
+# sensors: Dict[  str, Dict[str, Any]   ] = {
+#    "motor-a": {
+#        "temperature": 75,
+ #       "status": "running",
+ #       "voltage": 230.5
+
 sensor_state: Dict[str, Dict[str, Any]] = {}
 alert_state: List[Dict[str, Any]] = []
 recent_readings: List[Dict[str, Any]] = []
@@ -44,7 +52,7 @@ class ConnectionManager:
         self.connections.remove(websocket)
 
     async def broadcast(self, message: Dict[str, Any]):
-        payload = json.dumps(message)
+        payload = json.dumps(message)  ### datas received from mqtt broker is converted to json format and sent to the frontend
         for connection in list(self.connections):
             try:
                 await connection.send_text(payload)
@@ -71,10 +79,10 @@ def normalize_sensor(name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def determine_status(sensor: Dict[str, Any]) -> str:
+    if sensor["temperature"] > 100 or sensor["pressure"] > 130 or sensor["vibration"] > 12 or sensor["humidity"] > 90:
+            return "critical"
     if sensor["temperature"] > 80 or sensor["pressure"] > 110 or sensor["vibration"] > 8 or sensor["humidity"] > 75:
         return "warning"
-    if sensor["temperature"] > 100 or sensor["pressure"] > 130 or sensor["vibration"] > 12 or sensor["humidity"] > 90:
-        return "critical"
     return "normal"
 
 
@@ -94,6 +102,16 @@ def snapshot_state() -> Dict[str, Any]:
         sensors = list(sensor_state.values())
         alerts = list(alert_state)
         history = list(recent_readings)
+
+    """ use key , give the key back after finishing the operation, so that other threads can access it
+    readings_lock.acquire()
+
+    try:
+        recent_readings.insert(0, sensor)
+    finally:
+    readings_lock.release()
+    """
+
     return {
         "sensors": sensors,
         "alerts": alerts,
@@ -104,7 +122,7 @@ def snapshot_state() -> Dict[str, Any]:
 
 async def push_update():
     payload = snapshot_state()
-    await manager.broadcast({"type": "update", "data": payload})
+    await manager.broadcast({"type": "update", "data": payload})   ### if message=="update" then send the data to the frontend
 
 
 def persist_reading(sensor: Dict[str, Any]):
@@ -118,9 +136,11 @@ def persist_reading(sensor: Dict[str, Any]):
             alert_state.insert(0, alert)
             alert_state[:] = alert_state[:10]
         else:
-            existing = [a for a in alert_state if a["sensor"] == sensor["name"]]
+            existing = [alert for alert in alert_state
+                         if alert["sensor"] == sensor["name"]]
             if existing:
-                alert_state[:] = [a for a in alert_state if a["sensor"] != sensor["name"]]
+                alert_state[:] = [alert for alert in alert_state 
+                                  if alert["sensor"] != sensor["name"]]
 
 
 async def handle_sensor_message(topic: str, payload: Dict[str, Any]):
@@ -130,12 +150,12 @@ async def handle_sensor_message(topic: str, payload: Dict[str, Any]):
     await push_update()
 
 
-def on_mqtt_message(client, userdata, msg):
+def on_mqtt_message(_client, _userdata, msg):
     try:
         data = json.loads(msg.payload.decode("utf-8"))
     except Exception:
         return
-
+   
     try:
         asyncio.run(handle_sensor_message(msg.topic, data))
     except RuntimeError:
@@ -145,7 +165,7 @@ def on_mqtt_message(client, userdata, msg):
         loop.close()
 
 
-def connect_mqtt():
+async def connect_mqtt():
     global mqtt_client, mqtt_connected
     mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     mqtt_client.on_connect = on_mqtt_connect
@@ -154,13 +174,29 @@ def connect_mqtt():
         mqtt_client.connect("localhost", 1883, 60)
         mqtt_client.subscribe("industrial/sensors/#", qos=1)
         mqtt_client.loop_start()
+
         mqtt_connected = True
+
+        await manager.broadcast({
+            "type": "mqtt_status",
+            "status": "online",
+            "message": "Connected to MQTT broker"
+        })
+
     except Exception as exc:
         mqtt_connected = False
+        
         print(f"MQTT broker unavailable: {exc}")
 
+        await manager.broadcast({
+            "type":"mqtt_status",
+            "status":"offline",
+            "message": "MQTT connection lost"
+        })
+    
 
-def on_mqtt_connect(client, userdata, flags, reason_code, properties=None):
+
+def on_mqtt_connect(client, _userdata, _flags, _reason_code, _properties=None):
     global mqtt_connected
     mqtt_connected = True
     client.subscribe("industrial/sensors/#", qos=1)
@@ -175,10 +211,10 @@ async def generate_demo_data():
         "pump-1": {"temperature": 68, "pressure": 112, "vibration": 6.8, "humidity": 57},
         "compressor-1": {"temperature": 84, "pressure": 120, "vibration": 7.9, "humidity": 61},
     }
+
     while True:
         await asyncio.sleep(2)
-        if mqtt_connected:
-            continue
+        
         for name, values in demo_sensors.items():
             values["temperature"] += (hash(name) % 9) - 4
             values["pressure"] += (hash(name + "p") % 11) - 5
@@ -191,13 +227,36 @@ async def generate_demo_data():
                 "humidity": max(20, min(90, values["humidity"])),
                 "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
             }
-            await handle_sensor_message(f"industrial/sensors/line-1/{name}", payload)
+            topic = f"industrial/sensors/{name}"
+
+            mqtt_client.publish(topic,
+                                json.dumps(payload),
+                                qos=1
+                                        )
+            print(f"Published {topic}: {payload}")
 
 
-@app.on_event("startup")
-async def startup_event():
-    connect_mqtt()
-    asyncio.create_task(generate_demo_data())
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await connect_mqtt()
+
+    demo_task = asyncio.create_task(generate_demo_data())
+
+    try:
+        yield
+    finally:
+        demo_task.cancel()
+
+        try:
+            await demo_task
+        except asyncio.CancelledError:
+            pass
+
+        mqtt_client.loop_stop()
+        mqtt_client.disconnect()
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.get("/api/health")
