@@ -2,11 +2,11 @@
 
 This project implements a universal industrial sensor monitoring application using the architecture:
 
-ESP32 / Simulator -> Eclipse Mosquitto -> FastAPI -> HTML/JS dashboard
+Simulator -> Eclipse Mosquitto -> FastAPI -> HTML/JS dashboard
 
 ## Features
 
-- MQTT-capable ingestion from simulator or ESP32 devices
+- MQTT-capable ingestion from simulator
 - FastAPI backend for telemetry storage and in-memory alerts
 - Real-time dashboard with WebSocket updates
 - Live sensor cards, alarm panel, and recent history table
@@ -52,6 +52,4 @@ Then the simulator will automatically publish to `industrial/sensors/#`.
 - `industrial/sensors/line-2/pump-1`
 - `industrial/sensors/line-2/compressor-1`
 
-## Notes
 
-The application is built to be universal and industrial-ready, while keeping a simple local setup suitable for demos and labs.
