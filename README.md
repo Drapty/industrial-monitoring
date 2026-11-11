@@ -15,7 +15,11 @@ Simulator -> Eclipse Mosquitto -> FastAPI -> HTML/JS dashboard
 ## Run locally
 
 1. Open a terminal in the project root.
-2. Create a virtual environment:
+2. Allow locally created scripts to run for your Windows user:
+   ```powershell
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   ```
+2.1 Create a virtual environment:
    ```powershell
    py -m venv .venv
    .\.venv\Scripts\Activate.ps1
